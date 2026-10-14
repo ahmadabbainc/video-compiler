@@ -34,7 +34,7 @@ object FileUtils {
     fun listImagesInTree(ctx: Context, tree: Uri): List<Pair<Uri, String>> {
         val out = ArrayList<Pair<Uri, String>>()
         val rootId = DocumentsContract.getTreeDocumentId(tree)
-        val children = DocumentsContract.buildChildDocumentsUriForTreeUri(tree, rootId)
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, rootId)
         val columns = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
