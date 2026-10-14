@@ -37,6 +37,7 @@ data class UiState(
     val cues: List<SrtCue> = emptyList(),
     val srtError: String? = null,
     val images: List<ImageItem> = emptyList(),
+    val imageNotice: String? = null,
     val audioUri: Uri? = null,
     val audioName: String? = null,
     val audioDurationMs: Long = 0L,
@@ -131,11 +132,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val app = getApplication<Application>()
             val added = withContext(Dispatchers.IO) { uris.map { ImageItem(it, FileUtils.displayName(app, it)) } }
-            val merged = (_ui.value.images + added)
-                .distinctBy { it.uri }
-                .sortedWith { a, b -> FileUtils.naturalOrder.compare(a.name, b.name) }
-            _ui.value = _ui.value.copy(images = merged)
+            addImages(added)
         }
+    }
+
+    fun onFolderPicked(tree: Uri) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val found = withContext(Dispatchers.IO) {
+                runCatching { FileUtils.listImagesInTree(app, tree).map { ImageItem(it.first, it.second) } }
+            }
+            found.onSuccess { items ->
+                if (items.isEmpty()) {
+                    _ui.value = _ui.value.copy(imageNotice = "No images found directly inside that folder")
+                } else {
+                    addImages(items)
+                }
+            }.onFailure {
+                _ui.value = _ui.value.copy(imageNotice = "Couldn't read that folder")
+            }
+        }
+    }
+
+    private fun addImages(added: List<ImageItem>) {
+        val merged = (_ui.value.images + added)
+            .distinctBy { it.uri }
+            .sortedWith { a, b -> FileUtils.naturalOrder.compare(a.name, b.name) }
+        _ui.value = _ui.value.copy(images = merged, imageNotice = null)
     }
 
     fun reverseImages() {

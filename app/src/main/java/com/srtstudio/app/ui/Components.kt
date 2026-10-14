@@ -43,6 +43,7 @@ fun SectionCard(
     icon: ImageVector,
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
+    onHeaderClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
@@ -52,7 +53,10 @@ fun SectionCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                (if (onHeaderClick != null) Modifier.fillMaxWidth().clickable(onClick = onHeaderClick) else Modifier),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(
                     Modifier
                         .size(34.dp)
