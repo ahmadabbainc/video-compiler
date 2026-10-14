@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Movie
@@ -56,6 +58,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,6 +100,10 @@ fun StudioScreen(vm: MainViewModel = viewModel()) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) vm.onImagesPicked(uris)
     }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) vm.onFolderPicked(uri)
+    }
+    var lookOpen by rememberSaveable { mutableStateOf(false) }
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.onAudioPicked(uri)
     }
@@ -107,6 +116,7 @@ fun StudioScreen(vm: MainViewModel = viewModel()) {
     }
 
     fun onGenerate() {
+        lookOpen = false
         val needsAsk = Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         if (needsAsk) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.generate()
@@ -175,15 +185,19 @@ fun StudioScreen(vm: MainViewModel = viewModel()) {
                 title = "Images",
                 icon = Icons.Rounded.Image,
                 trailing = {
-                    FilledTonalButton(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
+                    FilledTonalButton(onClick = { folderPicker.launch(null) }) {
                         Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(if (ui.images.isEmpty()) "Add images" else "Add more")
                     }
                 },
             ) {
+                TextButton(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
+                    Text("Select individual images instead")
+                }
+                ui.imageNotice?.let { ErrorText(it) }
                 if (ui.images.isEmpty()) {
-                    SmallLabel("Optional. Without images you get a clean gradient background.")
+                    SmallLabel("Optional. Tap Add images and choose a folder: every image inside it is added. Without images you get a clean gradient background.")
                 } else {
                     SmallLabel("${ui.images.size} images · sorted by file name (img2 before img10)")
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -233,7 +247,23 @@ fun StudioScreen(vm: MainViewModel = viewModel()) {
             }
 
             // ---- 4. look
-            SectionCard(title = "Look", icon = Icons.Rounded.Tune) {
+            SectionCard(
+                title = "Look",
+                icon = Icons.Rounded.Tune,
+                onHeaderClick = { lookOpen = !lookOpen },
+                trailing = {
+                    Icon(
+                        if (lookOpen) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        contentDescription = if (lookOpen) "Hide look settings" else "Show look settings",
+                    )
+                },
+            ) {
+              if (!lookOpen) {
+                SmallLabel(
+                    "${ui.settings.size.label} · ${ui.settings.fps} fps · ${ui.settings.style.label} · " +
+                        "${ui.settings.position.label} · tap to edit"
+                )
+              } else {
                 SmallLabel("Format")
                 ChipRow(VideoSize.entries, ui.settings.size, { it.label }) { v -> vm.updateSettings { it.copy(size = v) } }
 
@@ -288,6 +318,7 @@ fun StudioScreen(vm: MainViewModel = viewModel()) {
                         range = 0f..1500f,
                     ) { v -> vm.updateSettings { it.copy(crossfadeMs = (v / 50f).roundToInt() * 50) } }
                 }
+              }
             }
 
             // ---- summary
