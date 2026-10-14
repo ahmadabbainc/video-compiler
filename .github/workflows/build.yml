@@ -39,11 +39,20 @@ jobs:
             echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
           fi
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Unit tests and release build
+        shell: bash
+        run: ./gradlew testDebugUnitTest assembleRelease --stacktrace 2>&1 | tee build.log
 
-      - name: Build release APK
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Show the error (only when the build fails)
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Build error"
+            echo '```'
+            grep -E "^e: |error:|FAILED|What went wrong|Execution failed|Caused by|Unresolved|Test .* FAILED" -A4 build.log | head -120
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Rename APK
         run: |
