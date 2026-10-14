@@ -41,18 +41,14 @@ jobs:
 
       - name: Unit tests and release build
         shell: bash
-        run: ./gradlew testDebugUnitTest assembleRelease --stacktrace 2>&1 | tee build.log
+        run: ./gradlew testDebugUnitTest assembleRelease --console=plain --stacktrace 2>&1 | tee build.log
 
       - name: Show the error (only when the build fails)
         if: failure()
         shell: bash
         run: |
-          {
-            echo "## Build error"
-            echo '```'
-            grep -E "^e: |error:|FAILED|What went wrong|Execution failed|Caused by|Unresolved|Test .* FAILED" -A4 build.log | head -120
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          MSG=$(grep -E "^e: |error:|FAILED|What went wrong|Execution failed|Caused by|Unresolved" -A3 build.log | head -c 3500 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Gradle failure::$MSG"
 
       - name: Rename APK
         run: |
