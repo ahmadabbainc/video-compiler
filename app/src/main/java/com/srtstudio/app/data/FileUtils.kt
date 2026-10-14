@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import java.io.File
 import java.nio.ByteBuffer
@@ -27,6 +28,31 @@ object FileUtils {
             }
         }
         return uri.lastPathSegment ?: "file"
+    }
+
+    /** Every image directly inside a folder chosen with the system folder picker (name + Uri). */
+    fun listImagesInTree(ctx: Context, tree: Uri): List<Pair<Uri, String>> {
+        val out = ArrayList<Pair<Uri, String>>()
+        val rootId = DocumentsContract.getTreeDocumentId(tree)
+        val children = DocumentsContract.buildChildDocumentsUriForTreeUri(tree, rootId)
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        )
+        ctx.contentResolver.query(children, columns, null, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getString(0)
+                val name = c.getString(1) ?: continue
+                val mime = c.getString(2) ?: continue
+                val isImage = mime.startsWith("image/") ||
+                    name.substringAfterLast('.', "").lowercase() in setOf("jpg", "jpeg", "png", "webp", "heic", "heif", "bmp", "gif")
+                if (isImage && mime != DocumentsContract.Document.MIME_TYPE_DIR) {
+                    out.add(DocumentsContract.buildDocumentUriUsingTree(tree, id) to name)
+                }
+            }
+        }
+        return out
     }
 
     /** Reads a subtitle file, guessing the encoding (UTF-8/16, then Arabic or Western legacy). */
