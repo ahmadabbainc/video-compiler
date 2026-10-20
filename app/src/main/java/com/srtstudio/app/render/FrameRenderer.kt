@@ -18,9 +18,11 @@ import androidx.core.graphics.ColorUtils
 import com.srtstudio.app.data.CaptionPosition
 import com.srtstudio.app.data.CaptionStyle
 import com.srtstudio.app.data.ImageMapping
+import com.srtstudio.app.data.ImageSegment
 import com.srtstudio.app.data.Palettes
 import com.srtstudio.app.data.RenderSettings
 import com.srtstudio.app.data.SrtCue
+import com.srtstudio.app.data.Timeline
 import kotlin.math.max
 import kotlin.math.min
 
@@ -44,12 +46,12 @@ class FrameRenderer(
     val bitmap: Bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     private val canvas = Canvas(bitmap)
 
-    private data class Segment(val imageIdx: Int, val startMs: Long, val endMs: Long, val order: Int)
-
     private val base = min(width, height).toFloat()
     private val portrait = height > width
     private val palette = Palettes[settings.palette.coerceIn(0, Palettes.lastIndex)]
-    private val segments: List<Segment> = buildSegments()
+    private val segments: List<ImageSegment> = Timeline.buildSegments(
+        cues, imageUris.size, durationMs, settings.mapping == ImageMapping.PerCue
+    )
     private val photos = HashMap<Int, Bitmap?>()
 
     private val bgPaint = Paint().apply {
@@ -84,27 +86,6 @@ class FrameRenderer(
     private var lastSeg = -1
     private var lastCue = -2
 
-    private fun buildSegments(): List<Segment> {
-        val n = imageUris.size
-        val dur = max(durationMs, 1L)
-        if (n == 0) return listOf(Segment(-1, 0L, dur, 0))
-
-        if (settings.mapping == ImageMapping.PerCue && cues.isNotEmpty()) {
-            val starts = ArrayList<Long>()
-            starts.add(0L)
-            for (c in cues.drop(1)) {
-                if (c.startMs > starts.last() && c.startMs < dur) starts.add(c.startMs)
-            }
-            return starts.mapIndexed { k, s ->
-                val end = if (k + 1 < starts.size) starts[k + 1] else dur
-                Segment(k % n, s, end, k)
-            }
-        }
-        return (0 until n).map { k ->
-            Segment(k, dur * k / n, dur * (k + 1) / n, k)
-        }
-    }
-
     private fun segmentIndexAt(t: Long): Int {
         while (segPtr + 1 < segments.size && t >= segments[segPtr + 1].startMs) segPtr++
         while (segPtr > 0 && t < segments[segPtr].startMs) segPtr--
@@ -135,13 +116,19 @@ class FrameRenderer(
 
     /** Draws the frame for time [tMs]. Returns false if it is identical to the previous one. */
     fun draw(tMs: Long): Boolean {
-        val segIdx = segmentIndexAt(tMs)
+        // The photo change is centred on the caption's start: the crossfade begins half a fade early and
+        // ends half a fade late, so the midpoint (where the eye registers the change) lands on the moment
+        // the narration begins. Starting the fade AT the caption start made every photo arrive late.
+        val fadeMs = settings.crossfadeMs
+        val tPhoto = tMs + fadeMs / 2
+
+        val segIdx = segmentIndexAt(tPhoto)
         val seg = segments[segIdx]
         val cueIdx = cueIndexAt(tMs)
         val hasPhoto = seg.imageIdx >= 0
 
-        val fadeMs = settings.crossfadeMs
-        val inFade = hasPhoto && segIdx > 0 && fadeMs > 0 && (tMs - seg.startMs) < fadeMs
+        val fade = min(fadeMs.toLong(), seg.endMs - seg.startMs) // never longer than the shot itself
+        val inFade = hasPhoto && segIdx > 0 && fade > 0 && (tPhoto - seg.startMs) < fade
         val capAlpha = captionAlpha(tMs, cueIdx)
         val dynamic = (settings.kenBurns && hasPhoto) || inFade || (cueIdx >= 0 && capAlpha < 1f)
 
@@ -154,12 +141,12 @@ class FrameRenderer(
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
         if (hasPhoto) {
-            val progress = ((tMs - seg.startMs).toFloat() / max(1L, seg.endMs - seg.startMs)).coerceIn(0f, 1f)
+            val progress = ((tPhoto - seg.startMs).toFloat() / max(1L, seg.endMs - seg.startMs)).coerceIn(0f, 1f)
             if (inFade) {
                 val prev = segments[segIdx - 1]
                 if (prev.imageIdx >= 0) drawPhoto(prev.imageIdx, prev.order, 1f, 255)
             }
-            val alpha = if (inFade) (255f * (tMs - seg.startMs) / fadeMs).toInt().coerceIn(0, 255) else 255
+            val alpha = if (inFade) (255f * (tPhoto - seg.startMs) / fade).toInt().coerceIn(0, 255) else 255
             drawPhoto(seg.imageIdx, seg.order, progress, alpha)
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), scrimPaint)
             prunePhotos(seg, segIdx)
@@ -176,7 +163,7 @@ class FrameRenderer(
         return photos[idx]
     }
 
-    private fun prunePhotos(seg: Segment, segIdx: Int) {
+    private fun prunePhotos(seg: ImageSegment, segIdx: Int) {
         val keep = HashSet<Int>()
         keep.add(seg.imageIdx)
         if (segIdx > 0) keep.add(segments[segIdx - 1].imageIdx)

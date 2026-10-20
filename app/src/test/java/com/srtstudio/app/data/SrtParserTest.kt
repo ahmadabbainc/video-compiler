@@ -71,4 +71,13 @@ class SrtParserTest {
         val bytes = "مرحبا".toByteArray(charset("windows-1256"))
         assertEquals("مرحبا", FileUtils.decodeText(bytes))
     }
+
+    @Test
+    fun splitsCuesThatAreMissingTheBlankLineBetweenThem() {
+        val srt = "1\n00:00:01,000 --> 00:00:02,000\nOne\n2\n00:00:03,000 --> 00:00:04,000\nTwo\n3\n00:00:05,000 --> 00:00:06,000\nThree\n"
+        val cues = SrtParser.parse(srt)
+        assertEquals(3, cues.size)
+        assertEquals(listOf("One", "Two", "Three"), cues.map { it.text })
+        assertEquals(listOf(1000L, 3000L, 5000L), cues.map { it.startMs })
+    }
 }
