@@ -20,7 +20,7 @@ import java.io.File
 sealed interface RenderState {
     data object Idle : RenderState
     data class Running(val stage: String, val progress: Float) : RenderState
-    data class Done(val uri: Uri) : RenderState
+    data class Done(val uri: Uri, val note: String? = null) : RenderState
     data class Failed(val message: String) : RenderState
 }
 
@@ -82,18 +82,19 @@ object RenderController {
             }
             val tmp = File(ctx.cacheDir, "render_${System.currentTimeMillis()}.mp4")
             try {
-                VideoRenderer(
+                val renderer = VideoRenderer(
                     ctx, request, tmp,
                     ensureActive = { ensureActive() },
                     onProgress = { stage, p ->
                         _state.value = RenderState.Running(stage, p)
                         onProgress(stage, p)
                     },
-                ).run()
+                )
+                renderer.run()
 
                 _state.value = RenderState.Running("Saving to Movies…", 1f)
                 onProgress("Saving to Movies…", 1f)
-                _state.value = RenderState.Done(FileUtils.saveToMovies(ctx, tmp))
+                _state.value = RenderState.Done(FileUtils.saveToMovies(ctx, tmp), renderer.report)
             } catch (e: CancellationException) {
                 _state.value = RenderState.Idle
                 throw e

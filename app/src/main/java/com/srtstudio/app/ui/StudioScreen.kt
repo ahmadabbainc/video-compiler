@@ -151,7 +151,7 @@ fun StudioScreen(vm: MainViewModel = viewModel()) {
             Header()
 
             when (val r = render) {
-                is RenderState.Done -> DoneCard(r.uri, onDismiss = vm::dismissResult)
+                is RenderState.Done -> DoneCard(r.uri, r.note, onDismiss = vm::dismissResult)
                 is RenderState.Failed -> FailedCard(r.message, onDismiss = vm::dismissResult)
                 else -> Unit
             }
@@ -432,7 +432,7 @@ private fun RunningPanel(state: RenderState.Running, onCancel: () -> Unit) {
 }
 
 @Composable
-private fun DoneCard(uri: Uri, onDismiss: () -> Unit) {
+private fun DoneCard(uri: Uri, note: String?, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     SectionCard(
         title = "Your video is ready",
@@ -440,6 +440,7 @@ private fun DoneCard(uri: Uri, onDismiss: () -> Unit) {
         trailing = { IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Dismiss") } },
     ) {
         SmallLabel("Saved to Movies / SRT Studio")
+        if (note != null) SmallLabel(note)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             FilledTonalButton(onClick = {
                 val view = Intent(Intent.ACTION_VIEW)

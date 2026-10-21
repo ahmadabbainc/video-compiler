@@ -38,6 +38,10 @@ class VideoRenderer(
     private var audio: AudioSource? = null
     private var renderer: FrameRenderer? = null
 
+    /** One-line result of reading the finished file back; shown to the user after the render. */
+    var report: String? = null
+        private set
+
     private var videoTrack = -1
     private var audioTrack = -1
     private var muxerStarted = false
@@ -68,14 +72,24 @@ class VideoRenderer(
 
             // --- video encoder ---
             val bitrate = (w.toLong() * h * fps * 0.09).toInt().coerceIn(2_000_000, 16_000_000)
+            val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            encoder = enc
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, fps)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+                // This is an offline render, not a live recording: ask for best-effort (non-realtime) encoding
+                // so the phone's encoder never skips frames to "keep up", and keep frames in presentation order.
+                setInteger(MediaFormat.KEY_PRIORITY, 1)
+                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+                // Constant-bitrate rate control is what makes many phone encoders drop frames on busy scenes.
+                val vbr = runCatching {
+                    enc.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                        .encoderCapabilities.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+                }.getOrDefault(false)
+                if (vbr) setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
             }
-            val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-            encoder = enc
             enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             val surface = enc.createInputSurface()
             enc.start()
@@ -105,6 +119,7 @@ class VideoRenderer(
 
             check(muxerStarted) { "The video encoder produced no output" }
             mux.stop()
+            report = runCatching { verifyOutput(totalFrames, fps) }.getOrNull()
         } catch (t: Throwable) {
             outFile.delete()
             throw t
@@ -218,6 +233,72 @@ class VideoRenderer(
             audioInfo.set(0, size, t, flags)
             mux.writeSampleData(audioTrack, audioBuffer, audioInfo)
             ex.advance()
+        }
+    }
+
+
+    // ---------------------------------------------------------------- self check
+
+    /**
+     * Reads the finished MP4 back and compares what the phone's encoder really produced with what we
+     * asked for: frame count, the worst gap between frames, and where video and audio end. If the encoder
+     * dropped or re-timed frames, this is where it shows up.
+     */
+    private fun verifyOutput(expectedFrames: Int, fps: Int): String {
+        val ex = MediaExtractor()
+        try {
+            ex.setDataSource(outFile.absolutePath)
+            var vTrack = -1
+            var aTrack = -1
+            for (i in 0 until ex.trackCount) {
+                val mime = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue
+                if (mime.startsWith("video/") && vTrack < 0) vTrack = i
+                if (mime.startsWith("audio/") && aTrack < 0) aTrack = i
+            }
+            check(vTrack >= 0) { "no video track" }
+
+            ex.selectTrack(vTrack)
+            val times = ArrayList<Long>(expectedFrames + 8)
+            while (true) {
+                val t = ex.sampleTime
+                if (t < 0) break
+                times.add(t)
+                ex.advance()
+            }
+            ex.unselectTrack(vTrack)
+            times.sort()
+
+            var maxGapUs = 0L
+            var maxOffUs = 0L
+            val stepUs = 1_000_000.0 / fps
+            for (k in times.indices) {
+                if (k > 0) maxGapUs = maxOf(maxGapUs, times[k] - times[k - 1])
+                maxOffUs = maxOf(maxOffUs, Math.abs(times[k] - (k * stepUs).toLong()))
+            }
+            val videoEndUs = (times.lastOrNull() ?: 0L) + (stepUs).toLong()
+
+            var audioEndUs = -1L
+            if (aTrack >= 0) {
+                ex.selectTrack(aTrack)
+                while (true) {
+                    val t = ex.sampleTime
+                    if (t < 0) break
+                    audioEndUs = t
+                    ex.advance()
+                }
+            }
+
+            val dropped = expectedFrames - times.size
+            val ok = dropped <= expectedFrames / 200 && maxGapUs < 250_000L && maxOffUs < 250_000L
+            val sb = StringBuilder(if (ok) "Sync check OK" else "Sync check: WARNING")
+            sb.append(" · frames ${times.size}/$expectedFrames")
+            sb.append(" · longest gap ${maxGapUs / 1000} ms")
+            sb.append(" · timing error ${maxOffUs / 1000} ms")
+            sb.append(" · video ends ${"%.2f".format(videoEndUs / 1e6)} s")
+            if (audioEndUs >= 0) sb.append(" · audio ends ${"%.2f".format(audioEndUs / 1e6)} s")
+            return sb.toString()
+        } finally {
+            runCatching { ex.release() }
         }
     }
 
