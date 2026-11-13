@@ -116,11 +116,10 @@ class FrameRenderer(
 
     /** Draws the frame for time [tMs]. Returns false if it is identical to the previous one. */
     fun draw(tMs: Long): Boolean {
-        // The photo change is centred on the caption's start: the crossfade begins half a fade early and
-        // ends half a fade late, so the midpoint (where the eye registers the change) lands on the moment
-        // the narration begins. Starting the fade AT the caption start made every photo arrive late.
+        // Keep image changes anchored to the exact SRT cue boundary. Do not advance the
+        // photo timeline by half a crossfade: that makes the next image appear before its caption.
         val fadeMs = settings.crossfadeMs
-        val tPhoto = tMs + fadeMs / 2
+        val tPhoto = tMs
 
         val segIdx = segmentIndexAt(tPhoto)
         val seg = segments[segIdx]
