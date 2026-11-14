@@ -95,7 +95,7 @@ async function recordVideo(){
  const mb=await import('https://esm.sh/mediabunny@1.65.2');
  const {Output,Mp4OutputFormat,BufferTarget,CanvasSource,AudioBufferSource,Quality,canEncodeAudio}=mb;
  const d=dimensions(),totalMs=Math.max(1,Math.round(dur)),totalFrames=Math.ceil(totalMs*fps/1000);
- const pixels=d.w*d.h,bitrate=Math.max(2000000,Math.min(16000000,Math.round(pixels*fps*.09)));
+ const pixels=d.w*d.h,bitrate=Math.max(5000000,Math.min(24000000,Math.round(pixels*fps*.22)));
  const videoSource=new CanvasSource(canvas,{codec:'avc',quality:new Quality({bitrate}),latencyMode:'quality',hardwareAcceleration:'no-preference',keyFrameInterval:2});
  const output=new Output({format:new Mp4OutputFormat(),target:new BufferTarget()});
  output.addVideoTrack(videoSource,{frameRate:fps});
