@@ -98,7 +98,7 @@ async function recordVideo(){
  const d=dimensions(),totalMs=Math.max(1,Math.round(dur)),totalFrames=Math.ceil(totalMs*fps/1000);
  const pixels=d.w*d.h,bitrate=Math.max(4500000,Math.min(16000000,Math.round(pixels*fps*.13)));
  const target=new BufferTarget();
- const videoSource=new CanvasSource(canvas,{codec:'avc',quality:new Quality({bitrate}),latencyMode:'realtime',hardwareAcceleration:'prefer-hardware',keyFrameInterval:2});
+ const videoSource=new CanvasSource(canvas,{codec:'avc',quality:new Quality({bitrate}),latencyMode:'realtime',hardwareAcceleration:'no-preference',keyFrameInterval:2});
  const output=new Output({format:new Mp4OutputFormat(),target});
  output.addVideoTrack(videoSource,{frameRate:fps});
  let audioSource=null,audioContext=null;
