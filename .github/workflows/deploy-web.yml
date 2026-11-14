@@ -33,8 +33,8 @@ jobs:
           curl -fL https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/worker.js -o web/vendor/ffmpeg/lib/worker.js
           curl -fL https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/const.js -o web/vendor/ffmpeg/lib/const.js
           curl -fL https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/errors.js -o web/vendor/ffmpeg/lib/errors.js
-          curl -fL https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js -o web/vendor/ffmpeg/core/ffmpeg-core.js
-          curl -fL https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm -o web/vendor/ffmpeg/core/ffmpeg-core.wasm
+          curl -fL https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/ffmpeg-core.js -o web/vendor/ffmpeg/core/ffmpeg-core.js
+          curl -fL https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/ffmpeg-core.wasm -o web/vendor/ffmpeg/core/ffmpeg-core.wasm
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
