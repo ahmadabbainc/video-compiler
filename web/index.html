@@ -41,7 +41,7 @@ const pad=n=>String(n).padStart(2,'0');
 function stamp(ms){ms=Math.max(0,ms||0);const h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60,cs=Math.floor(ms%1000/10);return h?pad(h)+':'+pad(m)+':'+pad(s)+'.'+pad(cs):pad(m)+':'+pad(s)+'.'+pad(cs)}
 function parseStamp(h,m,s,f){return ((+h*3600)+(+m*60)+(+s))*1000+ +(String(f).padEnd(3,'0').slice(0,3))}
 function parseSrt(raw){const lines=raw.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n').split('\n'),re=/(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})\s*-->\s*(\d{1,3}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})/,cues=[];for(let i=0;i<lines.length;i++){const m=lines[i].match(re);if(!m)continue;const start=parseStamp(m[1],m[2],m[3],m[4]),end=parseStamp(m[5],m[6],m[7],m[8]);let body=[];for(let j=i+1;j<lines.length&&!re.test(lines[j]);j++){if(lines[j].trim())body.push(lines[j].trim())}while(body.length&&/^\d+$/.test(body[body.length-1]))body.pop();const text=body.join('\n').replace(/<[^>]*>/g,'').replace(/\{[^}]*\}/g,'').trim();if(text)cues.push({startMs:start,endMs:Math.max(end,start+150),text})}return cues.sort((a,b)=>a.startMs-b.startMs)}
-function getDuration(){return Math.max(0,...state.cues.map(c=>c.endMs),audio.duration&&isFinite(audio.duration)?audio.duration*1000:0)}
+function getDuration(){if(audio.src&&Number.isFinite(audio.duration)&&audio.duration>0)return audio.duration*1000;return Math.max(0,...state.cues.map(c=>c.endMs))+600}
 function activeIndex(t){let lo=0,hi=state.cues.length-1,best=-1;while(lo<=hi){const mid=(lo+hi)>>1;if(state.cues[mid].startMs<=t){best=mid;lo=mid+1}else hi=mid-1}return best>=0&&t<state.cues[best].endMs?best:-1}
 function setStatus(msg,type=''){const el=$('status');el.textContent=msg;el.className='status '+type}
 function setProgress(v,show=true){$('progress').style.display=show?'block':'none';$('progressFill').style.width=Math.max(0,Math.min(100,v*100))+'%'}
@@ -79,7 +79,74 @@ $('fontSize').addEventListener('input',e=>{$('fontValue').textContent=e.target.v
 function stampSrt(ms){const h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60,x=Math.floor(ms%1000);return pad(h)+':'+pad(m)+':'+pad(s)+','+String(x).padStart(3,'0')}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
 $('exportSrtBtn').addEventListener('click',()=>{if(!state.cues.length){setStatus('Import or create captions first.','error');return}const txt=state.cues.map((c,i)=>(i+1)+'\n'+stampSrt(c.startMs)+' --> '+stampSrt(c.endMs)+'\n'+c.text).join('\n\n')+'\n';download(new Blob([txt],{type:'text/plain;charset=utf-8'}),'edited-captions.srt')});
-async function recordVideo(){const fps=+$('fps').value,dur=state.duration;if(!dur)throw new Error('There is no timeline to export.');if(audio.src&&audio.readyState<1)await new Promise((resolve,reject)=>{const ok=()=>{cleanup();resolve()},bad=()=>{cleanup();reject(new Error('Audio metadata could not be read.'))},cleanup=()=>{audio.removeEventListener('loadedmetadata',ok);audio.removeEventListener('error',bad)};audio.addEventListener('loadedmetadata',ok,{once:true});audio.addEventListener('error',bad,{once:true})});const totalMs=Math.max(dur,audio.src&&Number.isFinite(audio.duration)?audio.duration*1000:0),tailMs=650;const stream=canvas.captureStream(fps);let audioStream=null;if(audio.src&&typeof audio.captureStream==='function'){audioStream=audio.captureStream();audioStream.getAudioTracks().forEach(t=>stream.addTrack(t))}const mp4Types=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4'];const webmTypes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];const mp4Type=mp4Types.find(x=>MediaRecorder.isTypeSupported(x));const mime=mp4Type||webmTypes.find(x=>MediaRecorder.isTypeSupported(x));if(!mime)throw new Error('This browser cannot record video. Use current Chrome or Edge.');const pixels=dimensions().w*dimensions().h,bitrate=Math.max(12000000,Math.min(24000000,Math.round(pixels*fps*.22)));const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:bitrate,audioBitsPerSecond:192000}),chunks=[];rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};const done=new Promise((resolve,reject)=>{rec.onstop=()=>resolve(new Blob(chunks,{type:rec.mimeType||mime}));rec.onerror=()=>reject(rec.error||new Error('Recording failed'))});state.rendering=true;state.time=0;drawFrame(0);rec.start(500);try{if(audio.src){audio.currentTime=0;await audio.play()}const start=performance.now();await new Promise(resolve=>{const frame=()=>{const elapsed=performance.now()-start;state.time=Math.min(Math.max(0,totalMs-1),elapsed);drawFrame(state.time);setProgress(Math.min(1,elapsed/totalMs));if(elapsed>=totalMs+tailMs){resolve();return}requestAnimationFrame(frame)};requestAnimationFrame(frame)});if(audio.src)audio.pause();drawFrame(Math.max(0,totalMs-1));await new Promise(resolve=>setTimeout(resolve,250));rec.stop();const blob=await done;stream.getTracks().forEach(t=>t.stop());if(audioStream)audioStream.getTracks().forEach(t=>t.stop());state.time=0;syncPreview();return blob}catch(err){try{if(rec.state!=='inactive')rec.stop()}catch{}stream.getTracks().forEach(t=>t.stop());if(audioStream)audioStream.getTracks().forEach(t=>t.stop());throw err}finally{state.rendering=false}}
+async async function recordVideo(){
+ const fps=+$('fps').value,dur=state.duration;
+ if(!dur)throw new Error('There is no timeline to export.');
+ if(!window.VideoEncoder||!window.AudioEncoder)throw new Error('This browser does not support frame-accurate WebCodecs export. Use the latest Chrome or Edge.');
+ for(const item of state.images){
+  if(!item.img.complete||!item.img.naturalWidth){
+   if(typeof item.img.decode==='function')await item.img.decode();
+   else await new Promise((resolve,reject)=>{item.img.onload=resolve;item.img.onerror=()=>reject(new Error('An image could not be decoded: '+item.name))});
+  }
+ }
+ $('exportTitle').textContent='Preparing frame-accurate MP4…';
+ const mb=await import('https://esm.sh/mediabunny@1.65.2');
+ const {Output,Mp4OutputFormat,BufferTarget,CanvasSource,AudioBufferSource,Quality,canEncodeAudio}=mb;
+ const d=dimensions(),totalMs=Math.max(1,Math.round(dur)),totalFrames=Math.ceil(totalMs*fps/1000);
+ const pixels=d.w*d.h,bitrate=Math.max(2000000,Math.min(16000000,Math.round(pixels*fps*.09)));
+ const videoSource=new CanvasSource(canvas,{codec:'avc',quality:new Quality({bitrate}),latencyMode:'quality',hardwareAcceleration:'no-preference',keyFrameInterval:2});
+ const output=new Output({format:new Mp4OutputFormat(),target:new BufferTarget()});
+ output.addVideoTrack(videoSource,{frameRate:fps});
+ let audioSource=null,audioContext=null;
+ if(state.audioFile){
+  audioContext=new (window.AudioContext||window.webkitAudioContext)();
+  const decoded=await audioContext.decodeAudioData(await state.audioFile.arrayBuffer());
+  const maxLength=Math.min(decoded.length,Math.ceil(totalMs/1000*decoded.sampleRate));
+  const clipped=audioContext.createBuffer(decoded.numberOfChannels,maxLength,decoded.sampleRate);
+  for(let ch=0;ch<decoded.numberOfChannels;ch++)clipped.copyToChannel(decoded.getChannelData(ch).subarray(0,maxLength),ch);
+  if(!(await canEncodeAudio('aac'))){
+   try{
+    const ext=await import('https://esm.sh/@mediabunny/aac-encoder@1.65.2?external=mediabunny');
+    ext.registerAacEncoder();
+   }catch(e){throw new Error('AAC audio encoding is unavailable in this browser. Update Chrome or Edge and try again.')}
+  }
+  audioSource=new AudioBufferSource({codec:'aac',quality:new Quality({bitrate:192000})});
+  output.addAudioTrack(audioSource);
+  state._exportAudioBuffer=clipped;
+ }
+ await output.start();
+ state.rendering=true;
+ try{
+  for(let i=0;i<totalFrames;i++){
+   const tMs=Math.min(totalMs-1,i*1000/fps);
+   drawFrame(tMs);
+   await videoSource.add(i/fps,1/fps);
+   if(i%Math.max(1,Math.floor(fps/2))===0){
+    setProgress(i/totalFrames);
+    setStatus('Rendering frame '+(i+1)+' of '+totalFrames+'…');
+    $('exportTitle').textContent='Rendering MP4 · '+Math.round((i+1)/totalFrames*100)+'%';
+   }
+  }
+  videoSource.close();
+  if(audioSource&&state._exportAudioBuffer){
+   await audioSource.add(state._exportAudioBuffer);
+   audioSource.close();
+  }
+  await output.finalize();
+  const buffer=output.target.buffer;
+  if(!buffer||!buffer.byteLength)throw new Error('The MP4 encoder returned an empty file.');
+  setProgress(1);
+  return new Blob([buffer],{type:'video/mp4'});
+ }catch(err){
+  try{await output.cancel()}catch{}
+  throw err;
+ }finally{
+  delete state._exportAudioBuffer;
+  if(audioContext)await audioContext.close().catch(()=>{});
+  state.rendering=false;
+  state.time=0;syncPreview();
+ }
+}
 async function convertMp4(webm){$('exportTitle').textContent='Preparing MP4 conversion…';const {FFmpeg}=await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');if(!state.ffmpeg){state.ffmpeg=new FFmpeg();state.ffmpeg.on('log',({message})=>{console.debug('[FFmpeg]',message)});state.ffmpeg.on('progress',p=>{setStatus('Converting video to MP4…');setProgress(.72+Math.max(0,Math.min(1,p.progress))*.28)});const asset=(path)=>new URL('vendor/ffmpeg/'+path,document.baseURI).href;const workerURL=asset('lib/worker.js'),coreURL=asset('core/ffmpeg-core.js'),wasmURL=asset('core/ffmpeg-core.wasm');setStatus('Loading same-origin FFmpeg worker and codec…');$('exportTitle').textContent='Initializing video encoder…';try{await Promise.race([state.ffmpeg.load({classWorkerURL:workerURL,coreURL,wasmURL}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('FFmpeg initialization timed out after 60 seconds. Check that the FFmpeg assets were deployed and reload the page.')),60000))])}catch(loadError){try{state.ffmpeg.terminate()}catch{}state.ffmpeg=null;throw new Error('FFmpeg could not initialize: '+(loadError?.message||String(loadError)))}if(!state.ffmpeg||!state.ffmpeg.loaded)throw new Error('FFmpeg load completed without becoming ready.');setStatus('FFmpeg initialized. Preparing video…');setProgress(.90)}if(!state.ffmpeg||!state.ffmpeg.loaded)throw new Error('FFmpeg is not loaded. Initialization did not complete.');await state.ffmpeg.writeFile('input.webm',new Uint8Array(await webm.arrayBuffer()));setProgress(.92);const d=dimensions();const code=await state.ffmpeg.exec(['-i','input.webm','-map','0:v:0','-map','0:a?','-vf','fps='+$('fps').value+',scale='+d.w+':'+d.h+':flags=lanczos','-c:v','libx264','-preset','veryfast','-crf','18','-threads','2','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart','-max_muxing_queue_size','1024','output.mp4'],900000);if(code!==0)throw new Error('FFmpeg conversion failed with exit code '+code+'.');setStatus('Finishing MP4 file…');const data=await state.ffmpeg.readFile('output.mp4');setProgress(1);return new Blob([data.buffer],{type:'video/mp4'})}
 $('exportBtn').addEventListener('click',async()=>{if(!state.cues.length){setStatus('Import an SRT file or create captions first.','error');return}if(state.rendering)return;try{stopPlayback();$('exportBtn').disabled=true;$('exportTitle').textContent='Rendering video…';$('exportHint').textContent='Keep this tab open while the MP4 is being created.';setProgress(0);setStatus('Rendering frames and preparing MP4…');const recorded=await recordVideo();setProgress(.55);const mp4=recorded.type.includes('mp4')?recorded:await convertMp4(recorded);download(mp4,'SRT-Studio-video.mp4');setProgress(1);$('exportTitle').textContent='Your MP4 is ready.';$('exportHint').textContent='Saved to your computer’s downloads folder.';setStatus('MP4 export complete.','success')}catch(err){console.error('[SRT Studio export failure]',err,err?.stack||'');const detail=typeof err==='string'?err:(err?.message||err?.name||JSON.stringify(err)||String(err));setStatus('Export failed: '+detail,'error');$('exportTitle').textContent='Export could not finish.'}finally{$('exportBtn').disabled=false;setTimeout(()=>setProgress(0,false),2500)}});
 resizeCanvas();renderCueList();drawFrame(0);
