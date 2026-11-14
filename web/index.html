@@ -79,7 +79,7 @@ $('fontSize').addEventListener('input',e=>{$('fontValue').textContent=e.target.v
 function stampSrt(ms){const h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60,x=Math.floor(ms%1000);return pad(h)+':'+pad(m)+':'+pad(s)+','+String(x).padStart(3,'0')}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
 $('exportSrtBtn').addEventListener('click',()=>{if(!state.cues.length){setStatus('Import or create captions first.','error');return}const txt=state.cues.map((c,i)=>(i+1)+'\n'+stampSrt(c.startMs)+' --> '+stampSrt(c.endMs)+'\n'+c.text).join('\n\n')+'\n';download(new Blob([txt],{type:'text/plain;charset=utf-8'}),'edited-captions.srt')});
-async async function recordVideo(){
+async function recordVideo(){
  const fps=+$('fps').value;
  if(state.audioFile&&(!Number.isFinite(audio.duration)||audio.duration<=0))await new Promise((resolve,reject)=>{const ok=()=>{cleanup();resolve()},bad=()=>{cleanup();reject(new Error('Audio metadata could not be read.'))},cleanup=()=>{audio.removeEventListener('loadedmetadata',ok);audio.removeEventListener('error',bad)};audio.addEventListener('loadedmetadata',ok,{once:true});audio.addEventListener('error',bad,{once:true})});
  refreshDuration();const dur=state.duration;
